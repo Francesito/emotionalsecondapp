@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -1764,29 +1765,47 @@ class ApiClient {
 
   Future<dynamic> _get(String path, Map<String, String> params) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: params);
-    final res = await _client.get(uri);
-    if (res.statusCode >= 400) throw Exception(_err(res));
-    return jsonDecode(res.body);
+    return _send(() => _client.get(uri));
   }
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl$path'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
+    return _send(
+      () => _client.post(
+        Uri.parse('$baseUrl$path'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ),
     );
-    if (res.statusCode >= 400) throw Exception(_err(res));
-    return jsonDecode(res.body);
   }
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
-    final res = await _client.patch(
-      Uri.parse('$baseUrl$path'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
+    return _send(
+      () => _client.patch(
+        Uri.parse('$baseUrl$path'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ),
     );
-    if (res.statusCode >= 400) throw Exception(_err(res));
-    return jsonDecode(res.body);
+  }
+
+  Future<dynamic> _send(Future<http.Response> Function() request) async {
+    try {
+      final res = await request().timeout(const Duration(seconds: 12));
+      if (res.statusCode >= 400) throw Exception(_err(res));
+      return jsonDecode(res.body);
+    } on TimeoutException {
+      throw Exception('El servidor tarda demasiado en responder. Inténtalo de nuevo.');
+    } on http.ClientException {
+      throw Exception('No hay conexión a internet.');
+    } on FormatException {
+      throw Exception('Respuesta inesperada del servidor.');
+    } catch (e) {
+      final message = e.toString();
+      if (message.contains('SocketException')) {
+        throw Exception('No hay conexión a internet.');
+      }
+      throw Exception('No se pudo completar la solicitud: $message');
+    }
   }
 
   String _err(http.Response res) {

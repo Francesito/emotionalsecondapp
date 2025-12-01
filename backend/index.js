@@ -10,16 +10,30 @@ app.use(cors());
 app.use(express.json());
 
 const port = process.env.PORT || 4000;
-const dbUrl = process.env.DATABASE_URL;
+const rawDbUrl = process.env.DATABASE_URL;
 
-if (!dbUrl) {
+if (!rawDbUrl) {
   console.error('Falta DATABASE_URL en variables de entorno');
   process.exit(1);
 }
 
+// Render/Aiven suelen añadir ssl-mode=REQUIRED que mysql2 no reconoce; lo limpiamos.
+const dbUrl = (() => {
+  try {
+    const u = new URL(rawDbUrl);
+    u.searchParams.delete('ssl-mode');
+    return u.toString();
+  } catch (_) {
+    return rawDbUrl;
+  }
+})();
+
 const pool = mysql.createPool({
   uri: dbUrl,
-  ssl: { rejectUnauthorized: false }, // Aiven requiere SSL; usa su CA si la tienes
+  ssl: {
+    rejectUnauthorized: false, // Ajusta a true y agrega CA si tienes el certificado
+    minVersion: 'TLSv1.2',
+  },
   connectionLimit: 5,
 });
 
