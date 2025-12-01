@@ -230,12 +230,19 @@ app.get('/perception', async (req, res) => {
 
 // Justificantes
 app.post('/justifications', async (req, res) => {
-  const { studentId, type, evidenceUrl } = req.body;
-  if (!studentId || !type) return res.status(400).json({ error: 'Falta studentId o type' });
+  const { studentId, type, evidenceUrl, groupId } = req.body;
+  if (!studentId || !type || !groupId) {
+    return res.status(400).json({ error: 'Falta studentId, type o groupId' });
+  }
   try {
+    const [[membership]] = await pool.query(
+      'SELECT gm.id FROM group_members gm WHERE gm.student_id = ? AND gm.group_id = ? LIMIT 1',
+      [studentId, groupId]
+    );
+    if (!membership) return res.status(400).json({ error: 'El alumno debe pertenecer a este grupo' });
     await pool.query(
-      'INSERT INTO justifications (student_id, type, evidence_url) VALUES (?, ?, ?)',
-      [studentId, type, evidenceUrl || null]
+      'INSERT INTO justifications (student_id, group_id, type, evidence_url) VALUES (?, ?, ?, ?)',
+      [studentId, groupId, type, evidenceUrl || null]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -248,7 +255,7 @@ app.get('/justifications', async (req, res) => {
   try {
     if (studentId) {
       const [rows] = await pool.query(
-        'SELECT id, type, evidence_url AS evidenceUrl, status, created_at AS createdAt FROM justifications WHERE student_id = ? ORDER BY created_at DESC',
+        'SELECT id, group_id AS groupId, type, evidence_url AS evidenceUrl, status, created_at AS createdAt FROM justifications WHERE student_id = ? ORDER BY created_at DESC',
         [studentId]
       );
       return res.json(rows);
@@ -258,7 +265,7 @@ app.get('/justifications', async (req, res) => {
       const ids = groups.map((g) => g.id);
       if (!ids.length) return res.json([]);
       const [rows] = await pool.query(
-        `SELECT j.id, j.type, j.evidence_url AS evidenceUrl, j.status, j.created_at AS createdAt, u.name AS student, u.id AS studentId
+        `SELECT j.id, j.group_id AS groupId, j.type, j.evidence_url AS evidenceUrl, j.status, j.created_at AS createdAt, u.name AS student, u.id AS studentId
          FROM justifications j
          JOIN users u ON u.id = j.student_id
          JOIN group_members gm ON gm.student_id = j.student_id
@@ -344,7 +351,7 @@ app.get('/messages', async (req, res) => {
   try {
     if (groupId) {
       const [rows] = await pool.query(
-        'SELECT id, from_user_id AS fromUserId, body, created_at AS createdAt FROM messages WHERE group_id = ? ORDER BY created_at DESC',
+        'SELECT id, from_user_id AS fromUserId, group_id AS groupId, body, created_at AS createdAt FROM messages WHERE group_id = ? ORDER BY created_at DESC',
         [groupId]
       );
       return res.json(rows);

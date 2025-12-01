@@ -251,7 +251,7 @@ class StudentDashboard extends StatelessWidget {
     final tutor = app.tutorForStudent(user.id);
     final usedJustifications = app.justificationsForUser(user.id).length;
     final pendingAlerts = app.alertsForUser(user.id);
-    final canRequestJustification = usedJustifications < 2;
+    final canRequestJustification = usedJustifications < 2 && group != null;
 
     return SafeArea(
       child: ListView(
@@ -622,7 +622,27 @@ class JustificationListPage extends StatelessWidget {
               color: j.status.color,
             ),
             title: Text('${j.type} • ${j.status.label}'),
-            subtitle: Text(j.evidence ?? 'Sin evidencia'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(j.evidence ?? 'Sin evidencia'),
+                if (j.evidence != null && j.evidence!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: SizedBox(
+                      height: 120,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          j.evidence!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Text('No se pudo cargar la imagen'),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             trailing: Text(formatDate(j.date)),
           );
         },
@@ -928,7 +948,9 @@ void _showPerceptionSheet(BuildContext context, AppState app, String userId) {
 
 void _showJustificationSheet(BuildContext context, AppState app, String userId) {
   final typeCtrl = TextEditingController();
+  final evidenceCtrl = TextEditingController();
   String evidence = '';
+  final group = app.currentGroup;
   showModalBottomSheet(
     context: context,
     showDragHandle: true,
@@ -939,34 +961,50 @@ void _showJustificationSheet(BuildContext context, AppState app, String userId) 
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Solicitar justificante'),
+            Text(group == null ? 'Unete a una clase para solicitar' : 'Solicitar justificante'),
             TextField(
               controller: typeCtrl,
               decoration: const InputDecoration(labelText: 'Motivo (ej. cita médica)'),
             ),
             const SizedBox(height: 12),
             TextField(
-              decoration: const InputDecoration(labelText: 'Evidencia o nota'),
+              controller: evidenceCtrl,
+              decoration: const InputDecoration(labelText: 'Evidencia (URL de imagen o nota)'),
               onChanged: (v) => evidence = v,
             ),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () {
-                try {
-                  app.requestJustification(
-                    userId: userId,
-                    type: typeCtrl.text,
-                    evidence: evidence,
-                  );
-                  Navigator.pop(ctx);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(e.toString())),
-                  );
-                }
-              },
-              child: const Text('Enviar'),
-            )
+            if (evidenceCtrl.text.isNotEmpty)
+              SizedBox(
+                height: 140,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    evidenceCtrl.text,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Center(child: Text('No se pudo cargar la imagen')),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: group == null
+                      ? null
+                      : () {
+                          try {
+                            app.requestJustification(
+                              userId: userId,
+                              type: typeCtrl.text,
+                              evidence: evidence,
+                            );
+                            Navigator.pop(ctx);
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(e.toString())),
+                            );
+                          }
+                        },
+                  child: const Text('Enviar'),
+                )
           ],
         ),
       );
@@ -1355,7 +1393,13 @@ class AppState extends ChangeNotifier {
     required String type,
     String? evidence,
   }) async {
-    await _api.requestJustification(studentId: userId, type: type, evidence: evidence);
+    if (currentGroup == null) throw Exception('Debes unirte a un grupo primero');
+    await _api.requestJustification(
+      studentId: userId,
+      type: type,
+      evidence: evidence,
+      groupId: currentGroup!.id!,
+    );
     justifications = await _api.fetchJustifications(studentId: userId);
     notifyListeners();
   }
@@ -1607,8 +1651,14 @@ class ApiClient {
     required String studentId,
     required String type,
     String? evidence,
+    int? groupId,
   }) =>
-      _post('/justifications', {'studentId': studentId, 'type': type, 'evidenceUrl': evidence});
+      _post('/justifications', {
+        'studentId': studentId,
+        'groupId': groupId,
+        'type': type,
+        'evidenceUrl': evidence,
+      });
 
   Future<List<JustificationRequest>> fetchJustifications({String? studentId, String? tutorId}) async {
     final query = <String, String>{};

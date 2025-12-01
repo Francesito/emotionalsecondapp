@@ -1,8 +1,8 @@
 -- Esquema MySQL para la app de ánimo escolar.
 -- Pensado para levantarse en Aiven; usa InnoDB y utf8mb4.
 
-CREATE DATABASE IF NOT EXISTS emotionaltwo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE emotionaltwo;
+CREATE DATABASE IF NOT EXISTS defaultdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE defaultdb;
 
 CREATE TABLE users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -16,7 +16,7 @@ CREATE TABLE users (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE groups (
+CREATE TABLE `groups` (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   code VARCHAR(50) NOT NULL UNIQUE,
   name VARCHAR(120) NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE group_members (
   joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   CONSTRAINT uq_group_student UNIQUE (group_id, student_id, term),
-  CONSTRAINT fk_members_group FOREIGN KEY (group_id) REFERENCES groups(id),
+  CONSTRAINT fk_members_group FOREIGN KEY (group_id) REFERENCES `groups`(id),
   CONSTRAINT fk_members_student FOREIGN KEY (student_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
@@ -67,6 +67,7 @@ CREATE TABLE weekly_perceptions (
 CREATE TABLE justifications (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   student_id BIGINT UNSIGNED NOT NULL,
+  group_id BIGINT UNSIGNED NULL,
   type VARCHAR(100) NOT NULL,
   evidence_url VARCHAR(255) NULL,
   status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
@@ -75,6 +76,7 @@ CREATE TABLE justifications (
   resolved_at DATETIME NULL,
   PRIMARY KEY (id),
   CONSTRAINT fk_just_student FOREIGN KEY (student_id) REFERENCES users(id),
+  CONSTRAINT fk_just_group FOREIGN KEY (group_id) REFERENCES `groups`(id),
   CONSTRAINT fk_just_reviewer FOREIGN KEY (reviewer_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
@@ -103,7 +105,7 @@ CREATE TABLE messages (
   INDEX idx_msg_pair (from_user_id, to_user_id),
   CONSTRAINT fk_msg_from FOREIGN KEY (from_user_id) REFERENCES users(id),
   CONSTRAINT fk_msg_to FOREIGN KEY (to_user_id) REFERENCES users(id),
-  CONSTRAINT fk_msg_group FOREIGN KEY (group_id) REFERENCES groups(id)
+  CONSTRAINT fk_msg_group FOREIGN KEY (group_id) REFERENCES `groups`(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE attendance_events (
