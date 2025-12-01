@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Backend (Node)
+/backend/node_modules/
+/backend/.env
+/backend/package-lock.json
+
 # Symbolication related
 app.*.symbols
 

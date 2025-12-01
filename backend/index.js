@@ -1,0 +1,134 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import mysql from 'mysql2/promise';
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const port = process.env.PORT || 4000;
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+  console.error('Falta DATABASE_URL en variables de entorno');
+  process.exit(1);
+}
+
+const pool = mysql.createPool({
+  uri: dbUrl,
+  ssl: { rejectUnauthorized: false }, // Aiven requiere SSL; usa su CA si la tienes
+  connectionLimit: 5,
+});
+
+app.get('/health', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT 1 AS ok');
+    res.json({ ok: rows[0].ok === 1 });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Registro
+app.post('/auth/register', async (req, res) => {
+  const { role, name, email, password } = req.body;
+  if (!role || !name || !email || !password) {
+    return res.status(400).json({ error: 'Campos obligatorios: role, name, email, password' });
+  }
+  try {
+    const [exists] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (exists.length) return res.status(409).json({ error: 'Correo ya registrado' });
+    const [result] = await pool.query(
+      'INSERT INTO users (role, name, email, password_hash) VALUES (?, ?, ?, ?)',
+      [role, name, email, password]
+    );
+    res.json({ id: result.insertId, role, name, email });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Login sencillo (ejemplo; usar hashing real en prod)
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Falta email o password' });
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, role, name, email FROM users WHERE email = ? AND password_hash = ?',
+      [email, password]
+    );
+    if (!rows.length) return res.status(401).json({ error: 'Credenciales inválidas' });
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Crear grupo (tutor)
+app.post('/groups', async (req, res) => {
+  const { tutorId, name, code, term = '2024' } = req.body;
+  if (!tutorId || !name || !code) return res.status(400).json({ error: 'Falta tutorId, name o code' });
+  try {
+    const [exists] = await pool.query('SELECT id FROM groups WHERE code = ?', [code]);
+    if (exists.length) return res.status(409).json({ error: 'Código ya existe' });
+    const [result] = await pool.query(
+      'INSERT INTO groups (code, name, tutor_id, term) VALUES (?, ?, ?, ?)',
+      [code, name, tutorId, term]
+    );
+    res.json({ id: result.insertId, code, name });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Unirse a grupo (alumno)
+app.post('/groups/join', async (req, res) => {
+  const { studentId, groupCode, term = '2024' } = req.body;
+  if (!studentId || !groupCode) return res.status(400).json({ error: 'Falta studentId o groupCode' });
+  try {
+    const [[group]] = await pool.query('SELECT id FROM groups WHERE code = ?', [groupCode]);
+    if (!group) return res.status(404).json({ error: 'Grupo no encontrado' });
+    await pool.query(
+      'INSERT INTO group_members (group_id, student_id, term) VALUES (?, ?, ?)',
+      [group.id, studentId, term]
+    );
+    res.json({ ok: true, groupId: group.id });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Ya inscrito en este grupo/termino' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Listar grupos de un tutor con conteo y nombres de alumnos
+app.get('/groups', async (req, res) => {
+  const { tutorId } = req.query;
+  if (!tutorId) return res.status(400).json({ error: 'Falta tutorId' });
+  try {
+    const [groups] = await pool.query('SELECT id, code, name FROM groups WHERE tutor_id = ?', [tutorId]);
+    const ids = groups.map((g) => g.id);
+    let members = [];
+    if (ids.length) {
+      const [rows] = await pool.query(
+        `SELECT gm.group_id, u.name FROM group_members gm
+         JOIN users u ON u.id = gm.student_id
+         WHERE gm.group_id IN (${ids.map(() => '?').join(',')})`,
+        ids
+      );
+      members = rows;
+    }
+    const withCounts = groups.map((g) => ({
+      ...g,
+      students: members.filter((m) => m.group_id === g.id).map((m) => m.name),
+    }));
+    res.json(withCounts);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`API lista en puerto ${port}`);
+});

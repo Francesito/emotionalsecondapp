@@ -150,28 +150,20 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                     if (!isLogin) ...[
                       const SizedBox(height: 8),
-                      if (selectedRole == UserRole.student)
-                        TextFormField(
-                          controller: groupCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Código de grupo (proporcionado por tu tutor)',
-                          ),
-                          validator: (v) =>
-                              v == null || v.isEmpty ? 'Código obligatorio' : null,
-                        ),
                       if (selectedRole == UserRole.tutor) ...[
                         TextFormField(
                           controller: groupNameCtrl,
-                          decoration: const InputDecoration(labelText: 'Nombre de grupo'),
-                          validator: (v) =>
-                              v == null || v.isEmpty ? 'Nombre requerido' : null,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre de grupo inicial (opcional)',
+                            helperText: 'Puedes crear más grupos después',
+                          ),
                         ),
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: groupCtrl,
-                          decoration: const InputDecoration(labelText: 'Código de grupo único'),
-                          validator: (v) =>
-                              v == null || v.isEmpty ? 'Código requerido' : null,
+                          decoration: const InputDecoration(
+                            labelText: 'Código de grupo inicial (opcional)',
+                          ),
                         ),
                       ],
                     ],
@@ -190,8 +182,11 @@ class _AuthPageState extends State<AuthPage> {
                                 name: nameCtrl.text.trim(),
                                 email: emailCtrl.text.trim(),
                                 password: passCtrl.text,
-                                groupCode: groupCtrl.text.trim(),
-                                groupName: groupNameCtrl.text.trim(),
+                                groupCode:
+                                    groupCtrl.text.trim().isEmpty ? null : groupCtrl.text.trim(),
+                                groupName: groupNameCtrl.text.trim().isEmpty
+                                    ? null
+                                    : groupNameCtrl.text.trim(),
                               );
                             }
                           } catch (e) {
@@ -278,6 +273,24 @@ class StudentDashboard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
+          if (group == null)
+            SectionCard(
+              title: 'Unirse a clase',
+              child: JoinGroupForm(
+                onJoin: (code) {
+                  try {
+                    app.joinGroup(userId: user.id, groupCode: code);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Te uniste al grupo')),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString())),
+                    );
+                  }
+                },
+              ),
+            ),
           SectionCard(
             title: 'Estado de ánimo',
             trailing: Text(moodToday != null ? 'Registrado hoy' : 'Falta registrar'),
@@ -736,6 +749,47 @@ class SectionCard extends StatelessWidget {
   }
 }
 
+class JoinGroupForm extends StatefulWidget {
+  const JoinGroupForm({super.key, required this.onJoin});
+  final ValueChanged<String> onJoin;
+
+  @override
+  State<JoinGroupForm> createState() => _JoinGroupFormState();
+}
+
+class _JoinGroupFormState extends State<JoinGroupForm> {
+  final ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Ingresa el código de la clase que te compartió tu tutor.'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Código de grupo'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () {
+            if (ctrl.text.isEmpty) return;
+            widget.onJoin(ctrl.text.trim());
+          },
+          child: const Text('Unirme'),
+        )
+      ],
+    );
+  }
+}
+
 void _showMoodSheet(BuildContext context, AppState app, String userId) {
   showModalBottomSheet(
     context: context,
@@ -923,8 +977,14 @@ void _showCreateGroupSheet(BuildContext context, AppState app, String tutorId) {
             const SizedBox(height: 12),
             FilledButton(
               onPressed: () {
-                app.createGroup(tutorId: tutorId, name: nameCtrl.text, code: codeCtrl.text);
-                Navigator.pop(ctx);
+                try {
+                  app.createGroup(tutorId: tutorId, name: nameCtrl.text, code: codeCtrl.text);
+                  Navigator.pop(ctx);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString())),
+                  );
+                }
               },
               child: const Text('Crear'),
             )
@@ -1039,6 +1099,23 @@ class AppUser {
     required this.role,
     this.groupCode,
   });
+
+  AppUser copyWith({
+    String? name,
+    String? email,
+    String? password,
+    UserRole? role,
+    String? groupCode,
+  }) {
+    return AppUser(
+      id: id,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      password: password ?? this.password,
+      role: role ?? this.role,
+      groupCode: groupCode ?? this.groupCode,
+    );
+  }
 }
 
 class Group {
@@ -1165,31 +1242,28 @@ class AppState extends ChangeNotifier {
     required String name,
     required String email,
     required String password,
-    required String groupCode,
-    required String groupName,
+    String? groupCode,
+    String? groupName,
   }) async {
     if (_users.any((u) => u.email == email)) {
       throw Exception('El correo ya está registrado');
     }
     final id = _id();
     if (role == UserRole.student) {
-      final group = _groups.singleWhere(
-        (g) => g.code == groupCode,
-        orElse: () => throw Exception('El código de grupo no existe'),
-      );
       final user = AppUser(
         id: id,
         name: name,
         email: email,
         password: password,
         role: role,
-        groupCode: groupCode,
+        groupCode: null,
       );
       _users.add(user);
-      group.studentIds.add(id);
       currentUser = user;
     } else {
-      if (_groups.any((g) => g.code == groupCode)) {
+      if (groupCode != null &&
+          groupCode.isNotEmpty &&
+          _groups.any((g) => g.code == groupCode)) {
         throw Exception('El código de grupo ya existe');
       }
       final user = AppUser(
@@ -1200,8 +1274,13 @@ class AppState extends ChangeNotifier {
         role: role,
       );
       _users.add(user);
-      _groups.add(Group(code: groupCode, name: groupName, tutorId: id));
       currentUser = user;
+      if (groupCode != null &&
+          groupName != null &&
+          groupCode.isNotEmpty &&
+          groupName.isNotEmpty) {
+        _groups.add(Group(code: groupCode, name: groupName, tutorId: id));
+      }
     }
     notifyListeners();
   }
@@ -1335,8 +1414,12 @@ class AppState extends ChangeNotifier {
     required String name,
     required String code,
   }) {
-    if (name.isEmpty || code.isEmpty) return;
-    if (_groups.any((g) => g.code == code)) return;
+    if (name.isEmpty || code.isEmpty) {
+      throw Exception('Nombre y código son obligatorios');
+    }
+    if (_groups.any((g) => g.code == code)) {
+      throw Exception('El código ya existe');
+    }
     _groups.add(Group(code: code, name: name, tutorId: tutorId));
     notifyListeners();
   }
@@ -1429,6 +1512,25 @@ class AppState extends ChangeNotifier {
   }
 
   String userName(String id) => _users.singleWhere((u) => u.id == id).name;
+
+  void joinGroup({required String userId, required String groupCode}) {
+    final userIndex = _users.indexWhere((u) => u.id == userId);
+    if (userIndex == -1) throw Exception('Usuario no encontrado');
+    final user = _users[userIndex];
+    if (user.role != UserRole.student) {
+      throw Exception('Solo alumnos pueden unirse a grupos');
+    }
+    if (user.groupCode != null) {
+      throw Exception('El alumno ya pertenece a un grupo');
+    }
+    final group = _groups.singleWhere(
+      (g) => g.code == groupCode,
+      orElse: () => throw Exception('Código de grupo no encontrado'),
+    );
+    _users[userIndex] = user.copyWith(groupCode: groupCode);
+    group.studentIds.add(user.id);
+    notifyListeners();
+  }
 
   String studentSnapshot(String userId) {
     final last = lastMood(userId);
