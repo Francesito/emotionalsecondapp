@@ -486,6 +486,20 @@ class TutorDashboard extends StatelessWidget {
                           trailing: Text(app.lastMoodEmoji(s.id)),
                         ),
                       ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => GroupStudentsPage(group: g),
+                          ),
+                        );
+                      },
+                      child: const Text('Ver alumnos'),
+                    ),
+                  ),
                   TextButton(
                     onPressed: () => Navigator.push(
                       context,
@@ -961,7 +975,18 @@ void _showJustificationSheet(BuildContext context, AppState app, String userId) 
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(group == null ? 'Unete a una clase para solicitar' : 'Solicitar justificante'),
+            Text(group == null ? 'Únete a una clase para solicitar' : 'Solicitar justificante'),
+            if (group != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                child: Row(
+                  children: [
+                    const Text('Clase:'),
+                    const SizedBox(width: 8),
+                    Chip(label: Text('${group.name} (${group.code})')),
+                  ],
+                ),
+              ),
             TextField(
               controller: typeCtrl,
               decoration: const InputDecoration(labelText: 'Motivo (ej. cita médica)'),
@@ -1787,3 +1812,29 @@ extension FirstOrNull<T> on Iterable<T> {
 
 String formatDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+
+class GroupStudentsPage extends StatelessWidget {
+  const GroupStudentsPage({super.key, required this.group});
+  final Group group;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final students = app.studentsInGroup(group);
+    return Scaffold(
+      appBar: AppBar(title: Text('Alumnos de ${group.name}')),
+      body: ListView.builder(
+        itemCount: students.length,
+        itemBuilder: (context, index) {
+          final s = students[index];
+          return ListTile(
+            leading: CircleAvatar(child: Text(s.name.characters.first)),
+            title: Text(s.name),
+            subtitle: Text(app.studentSnapshot(s.id)),
+            trailing: Text(app.lastMoodEmoji(s.id)),
+          );
+        },
+      ),
+    );
+  }
+}
