@@ -74,141 +74,169 @@ class _AuthPageState extends State<AuthPage> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-              Text(
-                'Ánimo Escolar',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Mide emociones, asistencia y alertas en un solo lugar.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    isLogin ? 'Iniciar sesión' : 'Crear cuenta',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() => isLogin = !isLogin),
-                    child: Text(isLogin ? '¿Nuevo? Regístrate' : 'Ya tengo cuenta'),
-                  )
-                ],
-              ),
-              const SizedBox(height: 8),
-              ToggleButtons(
-                isSelected: [
-                  selectedRole == UserRole.student,
-                  selectedRole == UserRole.tutor
-                ],
-                onPressed: isLogin
-                    ? null
-                    : (idx) {
-                        setState(
-                            () => selectedRole = idx == 0 ? UserRole.student : UserRole.tutor);
-                      },
-                children: const [
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('Alumno'),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('Tutor'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    if (!isLogin)
-                      TextFormField(
-                        controller: nameCtrl,
-                        decoration: const InputDecoration(labelText: 'Nombre completo'),
-                        validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                      ),
-                    TextFormField(
-                      controller: emailCtrl,
-                      decoration: const InputDecoration(labelText: 'Correo'),
-                      validator: (v) =>
-                          v == null || !v.contains('@') ? 'Correo no válido' : null,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: passCtrl,
-                      decoration: const InputDecoration(labelText: 'Contraseña'),
-                      obscureText: true,
-                      validator: (v) => v == null || v.length < 4 ? 'Mínimo 4 caracteres' : null,
-                    ),
-                    if (!isLogin) ...[
-                      const SizedBox(height: 8),
-                      if (selectedRole == UserRole.tutor) ...[
-                        TextFormField(
-                          controller: groupNameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Nombre de grupo inicial (opcional)',
-                            helperText: 'Puedes crear más grupos después',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: groupCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Código de grupo inicial (opcional)',
-                          ),
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () async {
-                          if (!_formKey.currentState!.validate()) return;
-                          try {
-                            if (isLogin) {
-                              await app.login(emailCtrl.text.trim(), passCtrl.text);
-                            } else {
-                              await app.register(
-                                role: selectedRole,
-                                name: nameCtrl.text.trim(),
-                                email: emailCtrl.text.trim(),
-                                password: passCtrl.text,
-                                groupCode:
-                                    groupCtrl.text.trim().isEmpty ? null : groupCtrl.text.trim(),
-                                groupName: groupNameCtrl.text.trim().isEmpty
-                                    ? null
-                                    : groupNameCtrl.text.trim(),
-                              );
-                            }
-                          } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(e.toString())),
-                            );
-                          }
-                        },
-                        child: Text(isLogin ? 'Entrar' : 'Crear cuenta'),
-                      ),
-                    )
-                  ],
-                ),
-              )
-            ],
-          ),
+    final gradient = Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1E1F7A), Color(0xFF5B5CE2)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+      ),
+    );
+    return Scaffold(
+      body: Stack(
+        children: [
+          gradient,
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 8),
+                      Text(
+                        'Ánimo Escolar',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(color: const Color(0xFF1E1F7A)),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Mide emociones, asistencia y alertas en un solo lugar.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isLogin ? 'Iniciar sesión' : 'Crear cuenta',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() => isLogin = !isLogin),
+                            child: Text(isLogin ? '¿Nuevo? Regístrate' : 'Ya tengo cuenta'),
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ToggleButtons(
+                        isSelected: [
+                          selectedRole == UserRole.student,
+                          selectedRole == UserRole.tutor
+                        ],
+                        borderRadius: BorderRadius.circular(12),
+                        onPressed: isLogin
+                            ? null
+                            : (idx) {
+                                setState(() => selectedRole = idx == 0
+                                    ? UserRole.student
+                                    : UserRole.tutor);
+                              },
+                        children: const [
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('Alumno'),
+                          ),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('Tutor'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            if (!isLogin)
+                              TextFormField(
+                                controller: nameCtrl,
+                                decoration: const InputDecoration(labelText: 'Nombre completo'),
+                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                              ),
+                            TextFormField(
+                              controller: emailCtrl,
+                              decoration: const InputDecoration(labelText: 'Correo'),
+                              validator: (v) =>
+                                  v == null || !v.contains('@') ? 'Correo no válido' : null,
+                            ),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: passCtrl,
+                              decoration: const InputDecoration(labelText: 'Contraseña'),
+                              obscureText: true,
+                              validator: (v) =>
+                                  v == null || v.length < 4 ? 'Mínimo 4 caracteres' : null,
+                            ),
+                            if (!isLogin) ...[
+                              const SizedBox(height: 8),
+                              if (selectedRole == UserRole.tutor) ...[
+                                TextFormField(
+                                  controller: groupNameCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nombre de grupo inicial (opcional)',
+                                    helperText: 'Puedes crear más grupos después',
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  controller: groupCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Código de grupo inicial (opcional)',
+                                  ),
+                                ),
+                              ],
+                            ],
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: () async {
+                                  if (!_formKey.currentState!.validate()) return;
+                                  try {
+                                    if (isLogin) {
+                                      await app.login(emailCtrl.text.trim(), passCtrl.text);
+                                    } else {
+                                      await app.register(
+                                        role: selectedRole,
+                                        name: nameCtrl.text.trim(),
+                                        email: emailCtrl.text.trim(),
+                                        password: passCtrl.text,
+                                        groupCode: groupCtrl.text.trim().isEmpty
+                                            ? null
+                                            : groupCtrl.text.trim(),
+                                        groupName: groupNameCtrl.text.trim().isEmpty
+                                            ? null
+                                            : groupNameCtrl.text.trim(),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(e.toString())),
+                                    );
+                                  }
+                                },
+                                child: Text(isLogin ? 'Entrar' : 'Crear cuenta'),
+                              ),
+                            )
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -421,15 +449,15 @@ class StudentDashboard extends StatelessWidget {
                     title: Text('Sin alertas'),
                   ),
                 TextButton(
-                  onPressed: tutor == null
+                  onPressed: group == null
                       ? null
                       : () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => MessagesPage(userId: tutor.id),
+                              builder: (_) => MessagesPage(groupId: group.id, userId: user.id),
                             ),
                           ),
-                  child: Text(tutor == null ? 'Sin tutor asignado' : 'Abrir mensajes'),
+                  child: Text(group == null ? 'Sin grupo asignado' : 'Chat grupal'),
                 )
               ],
             ),
@@ -699,71 +727,120 @@ class _MessagesPageState extends State<MessagesPage> {
 
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1F7A),
+        foregroundColor: Colors.white,
         title: Text(widget.groupId != null ? 'Mensajes del grupo' : 'Mensajes directos'),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              reverse: true,
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final m = items[index];
-                final isMine = m.fromId == current.id;
-                return Align(
-                  alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isMine
-                          ? Theme.of(context).colorScheme.primaryContainer
-                          : Theme.of(context).colorScheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                      children: [
-                        Text(app.userName(m.fromId), style: const TextStyle(fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text(m.body),
-                        Text(formatDate(m.date),
-                            style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF1E1F7A), Color(0xFF121330)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: ctrl,
-                    decoration: const InputDecoration(hintText: 'Escribe un mensaje'),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () {
-                    if (ctrl.text.isEmpty) return;
-                    app.sendMessage(
-                      fromId: current.id,
-                      body: ctrl.text,
-                      groupId: widget.groupId,
-                      toUserId: widget.groupId == null ? widget.userId : null,
-                    );
-                    ctrl.clear();
-                  },
-                )
-              ],
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                reverse: true,
+                padding: const EdgeInsets.only(top: 12),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final m = items[index];
+                  final isMine = m.fromId == current.id;
+                  return Align(
+                    alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isMine
+                            ? Theme.of(context).colorScheme.primaryContainer
+                            : Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment:
+                            isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                        children: [
+                          Text(app.userName(m.fromId),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: isMine ? Colors.black54 : Colors.white70)),
+                          const SizedBox(height: 4),
+                          Text(
+                            m.body,
+                            style: TextStyle(
+                              color: isMine ? Colors.black87 : Colors.white,
+                              fontSize: 15,
+                            ),
+                          ),
+                          Text(
+                            formatDate(m.date),
+                            style: const TextStyle(fontSize: 10, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          )
-        ],
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.05),
+                border: const Border(
+                  top: BorderSide(color: Colors.white24),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: ctrl,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Escribe un mensaje',
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.08),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    color: Colors.white,
+                    style: IconButton.styleFrom(backgroundColor: const Color(0xFF5B5CE2)),
+                    icon: const Icon(Icons.send),
+                    onPressed: () {
+                      if (ctrl.text.isEmpty) return;
+                      app.sendMessage(
+                        fromId: current.id,
+                        body: ctrl.text,
+                        groupId: widget.groupId,
+                        toUserId: widget.groupId == null ? widget.userId : null,
+                      );
+                      ctrl.clear();
+                    },
+                  )
+                ],
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
