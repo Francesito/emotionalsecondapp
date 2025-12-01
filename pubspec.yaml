@@ -1,5 +1,5 @@
 name: emotionaltwo
-description: "A new Flutter project."
+description: "InduStat - Proyecto integrador de estadística aplicada a la industria."
 publish_to: 'none'
 version: 0.1.0
 
@@ -16,6 +16,14 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/industat.png
+  adaptive_icon_background: "#121330"
+  adaptive_icon_foreground: assets/icon/industat.png
 
 flutter:
   uses-material-design: true

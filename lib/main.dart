@@ -17,7 +17,8 @@ class MainApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => AppState(),
       child: MaterialApp(
-        title: 'Ánimo Escolar',
+        title: 'InduStat',
+        debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
           useMaterial3: true,
@@ -99,11 +100,11 @@ class _AuthPageState extends State<AuthPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 8),
-                      Text(
-                        'Ánimo Escolar',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineMedium
+              Text(
+                'InduStat',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineMedium
                             ?.copyWith(color: const Color(0xFF1E1F7A)),
                       ),
                       const SizedBox(height: 8),
