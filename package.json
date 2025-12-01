@@ -1,0 +1,12 @@
+{
+  "name": "emotionalsecondapp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend"
+  ],
+  "scripts": {
+    "start": "npm --prefix backend start",
+    "install-backend": "npm --prefix backend install"
+  }
+}
