@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
 void main() {
@@ -277,9 +280,9 @@ class StudentDashboard extends StatelessWidget {
             SectionCard(
               title: 'Unirse a clase',
               child: JoinGroupForm(
-                onJoin: (code) {
+                onJoin: (code) async {
                   try {
-                    app.joinGroup(userId: user.id, groupCode: code);
+                    await app.joinGroup(userId: user.id, groupCode: code);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Te uniste al grupo')),
                     );
@@ -475,7 +478,7 @@ class TutorDashboard extends StatelessWidget {
               trailing: Text('${g.studentIds.length} alumnos'),
               child: Column(
                 children: [
-                  ...app.studentsInGroup(g.code).map(
+                  ...app.studentsInGroup(g).map(
                         (s) => ListTile(
                           leading: CircleAvatar(child: Text(s.name.characters.first)),
                           title: Text(s.name),
@@ -487,7 +490,7 @@ class TutorDashboard extends StatelessWidget {
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => MessagesPage(groupCode: g.code, userId: user.id),
+                        builder: (_) => MessagesPage(groupId: g.id, userId: user.id),
                       ),
                     ),
                     child: const Text('Chat grupal / 1:1'),
@@ -628,21 +631,40 @@ class JustificationListPage extends StatelessWidget {
   }
 }
 
-class MessagesPage extends StatelessWidget {
-  const MessagesPage({super.key, this.groupCode, required this.userId});
-  final String? groupCode;
+class MessagesPage extends StatefulWidget {
+  const MessagesPage({super.key, this.groupId, required this.userId});
+  final int? groupId;
   final String userId;
+
+  @override
+  State<MessagesPage> createState() => _MessagesPageState();
+}
+
+class _MessagesPageState extends State<MessagesPage> {
+  final ctrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final app = context.read<AppState>();
+    app.loadMessages(groupId: widget.groupId, peerId: widget.groupId == null ? widget.userId : null);
+  }
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final items = app.messagesFor(groupCode: groupCode, userId: userId);
-    final ctrl = TextEditingController();
+    final items = app.messagesFor(groupId: widget.groupId, userId: widget.userId);
     final current = app.currentUser!;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(groupCode != null ? 'Mensajes grupo $groupCode' : 'Mensajes directos'),
+        title: Text(widget.groupId != null ? 'Mensajes del grupo' : 'Mensajes directos'),
       ),
       body: Column(
         children: [
@@ -697,8 +719,8 @@ class MessagesPage extends StatelessWidget {
                     app.sendMessage(
                       fromId: current.id,
                       body: ctrl.text,
-                      groupCode: groupCode,
-                      toUserId: groupCode == null ? userId : null,
+                      groupId: widget.groupId,
+                      toUserId: widget.groupId == null ? widget.userId : null,
                     );
                     ctrl.clear();
                   },
@@ -1119,15 +1141,19 @@ class AppUser {
 }
 
 class Group {
+  final int? id;
   final String code;
   final String name;
   final String tutorId;
+  final String? tutorName;
   final List<String> studentIds;
 
   Group({
+    this.id,
     required this.code,
     required this.name,
     required this.tutorId,
+    this.tutorName,
     List<String>? studentIds,
   }) : studentIds = studentIds ?? [];
 }
@@ -1213,7 +1239,7 @@ class MessageItem {
   final String id;
   final String fromId;
   final String? toUserId;
-  final String? groupCode;
+  final int? groupId;
   final String body;
   final DateTime date;
 
@@ -1223,19 +1249,29 @@ class MessageItem {
     required this.body,
     required this.date,
     this.toUserId,
-    this.groupCode,
+    this.groupId,
   });
 }
 
 class AppState extends ChangeNotifier {
+  final ApiClient _api = ApiClient(baseUrl: 'https://emotionalsecondapp.onrender.com');
   AppUser? currentUser;
-  final List<AppUser> _users = [];
-  final List<Group> _groups = [];
-  final List<MoodRecord> _moodRecords = [];
-  final List<WeeklyPerception> _perceptions = [];
-  final List<JustificationRequest> _justifications = [];
-  final List<AlertItem> _alerts = [];
-  final List<MessageItem> _messages = [];
+  Group? currentGroup;
+  List<Group> tutorGroups = [];
+  List<MoodRecord> moods = [];
+  List<WeeklyPerception> perceptions = [];
+  List<JustificationRequest> justifications = [];
+  List<AlertItem> alerts = [];
+  List<MessageItem> messages = [];
+
+  Future<void> loadMessages({int? groupId, String? peerId}) async {
+    messages = await _api.fetchMessages(
+      groupId: groupId,
+      currentUserId: currentUser?.id,
+      peerId: peerId,
+    );
+    notifyListeners();
+  }
 
   Future<void> register({
     required UserRole role,
@@ -1245,211 +1281,143 @@ class AppState extends ChangeNotifier {
     String? groupCode,
     String? groupName,
   }) async {
-    if (_users.any((u) => u.email == email)) {
-      throw Exception('El correo ya está registrado');
+    final user = await _api.register(role: role, name: name, email: email, password: password);
+    currentUser = user;
+    if (role == UserRole.tutor && groupCode != null && groupName != null && groupCode.isNotEmpty && groupName.isNotEmpty) {
+      await createGroup(tutorId: user.id, name: groupName, code: groupCode);
     }
-    final id = _id();
-    if (role == UserRole.student) {
-      final user = AppUser(
-        id: id,
-        name: name,
-        email: email,
-        password: password,
-        role: role,
-        groupCode: null,
-      );
-      _users.add(user);
-      currentUser = user;
-    } else {
-      if (groupCode != null &&
-          groupCode.isNotEmpty &&
-          _groups.any((g) => g.code == groupCode)) {
-        throw Exception('El código de grupo ya existe');
-      }
-      final user = AppUser(
-        id: id,
-        name: name,
-        email: email,
-        password: password,
-        role: role,
-      );
-      _users.add(user);
-      currentUser = user;
-      if (groupCode != null &&
-          groupName != null &&
-          groupCode.isNotEmpty &&
-          groupName.isNotEmpty) {
-        _groups.add(Group(code: groupCode, name: groupName, tutorId: id));
-      }
-    }
+    await _refresh();
     notifyListeners();
   }
 
   Future<void> login(String email, String password) async {
-    final user = _users.singleWhere(
-      (u) => u.email == email && u.password == password,
-      orElse: () => throw Exception('Credenciales incorrectas'),
-    );
+    final user = await _api.login(email: email, password: password);
     currentUser = user;
+    await _refresh();
     notifyListeners();
   }
 
   void logout() {
     currentUser = null;
+    currentGroup = null;
+    tutorGroups = [];
+    moods = [];
+    perceptions = [];
+    justifications = [];
+    alerts = [];
+    messages = [];
     notifyListeners();
   }
 
-  void logMood({
+  Future<void> _refresh() async {
+    if (currentUser == null) return;
+    if (currentUser!.role == UserRole.student) {
+      final group = await _api.groupForStudent(currentUser!.id);
+      currentGroup = group;
+      moods = await _api.fetchMood(currentUser!.id);
+      perceptions = await _api.fetchPerceptions(currentUser!.id);
+      justifications = await _api.fetchJustifications(studentId: currentUser!.id);
+      alerts = await _api.fetchAlerts(studentId: currentUser!.id);
+      if (group != null) {
+        messages = await _api.fetchMessages(groupId: group.id);
+      }
+    } else {
+      tutorGroups = await _api.fetchGroupsForTutor(currentUser!.id);
+      alerts = await _api.fetchAlerts(tutorId: currentUser!.id);
+      justifications = await _api.fetchJustifications(tutorId: currentUser!.id);
+    }
+  }
+
+  Future<void> logMood({
     required String userId,
     required MoodEmoji mood,
     String? note,
-  }) {
-    final today = DateTime.now();
-    final already = _moodRecords.any(
-      (m) => m.userId == userId && DateUtils.isSameDay(m.date, today),
-    );
-    if (already) return;
-    _moodRecords.add(
-      MoodRecord(
-        userId: userId,
-        date: today,
-        mood: mood,
-        note: note,
-      ),
-    );
-    if (mood == MoodEmoji.mal || mood == MoodEmoji.muyMal) {
-      _alerts.add(
-        AlertItem(
-          id: _id(),
-          userId: userId,
-          type: AlertType.mood,
-          message: 'Ánimo bajo reportado',
-          date: today,
-          severity: mood == MoodEmoji.muyMal ? 'alto' : 'medio',
-        ),
-      );
-    }
+  }) async {
+    await _api.logMood(studentId: userId, mood: mood, note: note);
+    moods = await _api.fetchMood(userId);
+    alerts = await _api.fetchAlerts(studentId: userId);
     notifyListeners();
   }
 
-  void submitPerception({
+  Future<void> submitPerception({
     required String userId,
     required String subject,
     required MoodEmoji emotion,
     String? notes,
-  }) {
-    if (subject.isEmpty) return;
-    final now = DateTime.now();
-    final weekStart = now.subtract(Duration(days: now.weekday - 1));
-    final exists = _perceptions.any(
-      (p) =>
-          p.userId == userId &&
-          p.subject.toLowerCase() == subject.toLowerCase() &&
-          p.weekOf.isAtSameMomentAs(DateTime(weekStart.year, weekStart.month, weekStart.day)),
-    );
-    if (exists) return;
-    _perceptions.add(
-      WeeklyPerception(
-        userId: userId,
-        subject: subject,
-        weekOf: DateTime(weekStart.year, weekStart.month, weekStart.day),
-        emotion: emotion,
-        notes: notes,
-      ),
-    );
+  }) async {
+    await _api.submitPerception(studentId: userId, subject: subject, emotion: emotion, notes: notes);
+    perceptions = await _api.fetchPerceptions(userId);
     notifyListeners();
   }
 
-  void requestJustification({
+  Future<void> requestJustification({
     required String userId,
     required String type,
     String? evidence,
-  }) {
-    final termStart = _termStart(DateTime.now());
-    final used = _justifications
-        .where((j) => j.userId == userId && (j.date.isAfter(termStart) || DateUtils.isSameDay(j.date, termStart)))
-        .length;
-    if (used >= 2) throw Exception('Límite de justificantes alcanzado');
-    _justifications.add(
-      JustificationRequest(
-        id: _id(),
-        userId: userId,
-        type: type,
-        evidence: evidence,
-        status: JustificationStatus.pending,
-        date: DateTime.now(),
-      ),
-    );
+  }) async {
+    await _api.requestJustification(studentId: userId, type: type, evidence: evidence);
+    justifications = await _api.fetchJustifications(studentId: userId);
     notifyListeners();
   }
 
-  void resolveJustification(String id, bool approve) {
-    final item = _justifications.singleWhere((j) => j.id == id);
-    item.status = approve ? JustificationStatus.approved : JustificationStatus.rejected;
+  Future<void> resolveJustification(String id, bool approve) async {
+    await _api.resolveJustification(id: id, status: approve ? 'approved' : 'rejected', reviewerId: currentUser?.id);
+    justifications = await _api.fetchJustifications(tutorId: currentUser?.id);
     notifyListeners();
   }
 
-  void sendMessage({
+  Future<void> sendMessage({
     required String fromId,
     required String body,
     String? toUserId,
-    String? groupCode,
-  }) {
-    _messages.insert(
-      0,
-      MessageItem(
-        id: _id(),
-        fromId: fromId,
-        toUserId: toUserId,
-        groupCode: groupCode,
-        body: body,
-        date: DateTime.now(),
-      ),
+    int? groupId,
+  }) async {
+    await _api.sendMessage(fromId: fromId, body: body, toUserId: toUserId, groupId: groupId);
+    messages = await _api.fetchMessages(
+      groupId: groupId,
+      currentUserId: currentUser?.id,
+      peerId: toUserId,
     );
     notifyListeners();
   }
 
-  void createGroup({
+  Future<void> createGroup({
     required String tutorId,
     required String name,
     required String code,
-  }) {
-    if (name.isEmpty || code.isEmpty) {
-      throw Exception('Nombre y código son obligatorios');
-    }
-    if (_groups.any((g) => g.code == code)) {
-      throw Exception('El código ya existe');
-    }
-    _groups.add(Group(code: code, name: name, tutorId: tutorId));
+  }) async {
+    await _api.createGroup(tutorId: tutorId, name: name, code: code);
+    tutorGroups = await _api.fetchGroupsForTutor(tutorId);
     notifyListeners();
   }
 
-  List<AppUser> studentsInGroup(String groupCode) =>
-      _users.where((u) => u.role == UserRole.student && u.groupCode == groupCode).toList();
-
-  List<Group> groupsForTutor(String tutorId) => _groups.where((g) => g.tutorId == tutorId).toList();
-
-  Group? groupForStudent(String userId) {
-    final user = _users.singleWhere((u) => u.id == userId);
-    if (user.groupCode == null) return null;
-    return _groups.singleWhere((g) => g.code == user.groupCode);
+  Future<void> joinGroup({required String userId, required String groupCode}) async {
+    await _api.joinGroup(studentId: userId, groupCode: groupCode);
+    currentGroup = await _api.groupForStudent(userId);
+    notifyListeners();
   }
+
+  List<Group> groupsForTutor(String tutorId) => tutorGroups;
+
+  Group? groupForStudent(String userId) => currentGroup;
 
   AppUser? tutorForStudent(String studentId) {
-    final group = groupForStudent(studentId);
-    if (group == null) return null;
-    return _users.where((u) => u.id == group.tutorId).firstOrNull;
+    if (currentGroup == null) return null;
+    return _api.cachedUsers[currentGroup!.tutorId] ??
+        AppUser(
+          id: currentGroup!.tutorId,
+          name: currentGroup!.tutorName ?? 'Tutor',
+          email: '',
+          password: '',
+          role: UserRole.tutor,
+        );
   }
 
-  List<MoodRecord> moodForUser(String userId) =>
-      _moodRecords.where((m) => m.userId == userId).toList()
-        ..sort((a, b) => b.date.compareTo(a.date));
+  List<MoodRecord> moodForUser(String userId) => moods;
 
   MoodRecord? moodForToday(String userId) {
     final today = DateTime.now();
-    return _moodRecords
-        .where((m) => m.userId == userId && DateUtils.isSameDay(m.date, today))
-        .firstOrNull;
+    return moods.where((m) => DateUtils.isSameDay(m.date, today)).firstOrNull;
   }
 
   MoodRecord? lastMood(String userId) => moodForUser(userId).firstOrNull;
@@ -1459,9 +1427,7 @@ class AppState extends ChangeNotifier {
     return last?.mood.emoji ?? '—';
   }
 
-  List<WeeklyPerception> perceptionsForUser(String userId) =>
-      _perceptions.where((p) => p.userId == userId).toList()
-        ..sort((a, b) => b.weekOf.compareTo(a.weekOf));
+  List<WeeklyPerception> perceptionsForUser(String userId) => perceptions;
 
   String lastPerceptionSummary(String userId) {
     final last = perceptionsForUser(userId).firstOrNull;
@@ -1469,72 +1435,36 @@ class AppState extends ChangeNotifier {
     return '${last.subject}: ${describeMood(last.emotion)}';
   }
 
-  List<JustificationRequest> justificationsForUser(String userId) =>
-      _justifications.where((j) => j.userId == userId).toList()
-        ..sort((a, b) => b.date.compareTo(a.date));
+  List<JustificationRequest> justificationsForUser(String userId) => justifications;
 
-  List<JustificationRequest> pendingJustifications(String tutorId) {
-    final tutorGroups = groupsForTutor(tutorId).map((g) => g.code).toSet();
-    final students = _users.where(
-      (u) => u.role == UserRole.student && u.groupCode != null && tutorGroups.contains(u.groupCode),
-    );
-    final studentIds = students.map((e) => e.id).toSet();
-    return _justifications
-        .where((j) => studentIds.contains(j.userId) && j.status == JustificationStatus.pending)
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
-  }
+  List<JustificationRequest> pendingJustifications(String tutorId) =>
+      justifications.where((j) => j.status == JustificationStatus.pending).toList();
 
-  List<AlertItem> alertsForUser(String userId) =>
-      _alerts.where((a) => a.userId == userId).toList()
-        ..sort((a, b) => b.date.compareTo(a.date));
+  List<AlertItem> alertsForUser(String userId) => alerts;
 
-  List<AlertItem> alertsForTutor(String tutorId) {
-    final ids = groupsForTutor(tutorId)
-        .expand((g) => g.studentIds)
-        .toSet();
-    return _alerts.where((a) => ids.contains(a.userId)).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
-  }
+  List<AlertItem> alertsForTutor(String tutorId) => alerts;
 
-  List<MessageItem> messagesFor({String? groupCode, String? userId}) {
-    final relevant = _messages.where((m) {
-      if (groupCode != null) {
-        return m.groupCode == groupCode;
-      }
+  List<MessageItem> messagesFor({int? groupId, String? userId}) {
+    return messages.where((m) {
+      if (groupId != null) return m.groupId == groupId;
       if (userId != null && currentUser != null) {
         return (m.fromId == userId && m.toUserId == currentUser!.id) ||
             (m.fromId == currentUser!.id && m.toUserId == userId);
       }
       return false;
     }).toList();
-    return relevant;
   }
 
-  String userName(String id) => _users.singleWhere((u) => u.id == id).name;
+  String userName(String id) => _api.cachedUsers[id]?.name ?? 'Usuario';
 
-  void joinGroup({required String userId, required String groupCode}) {
-    final userIndex = _users.indexWhere((u) => u.id == userId);
-    if (userIndex == -1) throw Exception('Usuario no encontrado');
-    final user = _users[userIndex];
-    if (user.role != UserRole.student) {
-      throw Exception('Solo alumnos pueden unirse a grupos');
-    }
-    if (user.groupCode != null) {
-      throw Exception('El alumno ya pertenece a un grupo');
-    }
-    final group = _groups.singleWhere(
-      (g) => g.code == groupCode,
-      orElse: () => throw Exception('Código de grupo no encontrado'),
-    );
-    _users[userIndex] = user.copyWith(groupCode: groupCode);
-    group.studentIds.add(user.id);
-    notifyListeners();
-  }
+  List<AppUser> studentsInGroup(Group group) => group.studentIds
+      .map((id) => _api.cachedUsers[id])
+      .whereType<AppUser>()
+      .toList();
 
   String studentSnapshot(String userId) {
     final last = lastMood(userId);
-    final pending = _justifications.where(
+    final pending = justifications.where(
       (j) => j.userId == userId && j.status == JustificationStatus.pending,
     );
     return [
@@ -1542,12 +1472,263 @@ class AppState extends ChangeNotifier {
       if (pending.isNotEmpty) '${pending.length} justificante(s) pendiente(s)',
     ].join(' • ');
   }
+}
 
-  DateTime _termStart(DateTime now) {
-    return now.month <= 6 ? DateTime(now.year, 1, 1) : DateTime(now.year, 7, 1);
+class ApiClient {
+  final String baseUrl;
+  final http.Client _client = http.Client();
+  final Map<String, AppUser> cachedUsers = {};
+
+  ApiClient({required this.baseUrl});
+
+  Future<AppUser> register({
+    required UserRole role,
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final data = await _post('/auth/register', {
+      'role': role.name,
+      'name': name,
+      'email': email,
+      'password': password,
+    });
+    final user = _userFromJson(data);
+    cachedUsers[user.id] = user;
+    return user;
   }
 
-  String _id() => DateTime.now().microsecondsSinceEpoch.toString();
+  Future<AppUser> login({required String email, required String password}) async {
+    final data = await _post('/auth/login', {'email': email, 'password': password});
+    final user = _userFromJson(data);
+    cachedUsers[user.id] = user;
+    return user;
+  }
+
+  Future<Group?> groupForStudent(String studentId) async {
+    final resp = await _get('/groups/by-student', {'studentId': studentId});
+    if (resp is List && resp.isNotEmpty) {
+      final g = resp.first;
+      cachedUsers[(g['tutorId'] ?? '').toString()] = AppUser(
+        id: (g['tutorId'] ?? '').toString(),
+        name: g['tutorName'] ?? 'Tutor',
+        email: '',
+        password: '',
+        role: UserRole.tutor,
+      );
+      return Group(
+        id: g['id'],
+        code: g['code'],
+        name: g['name'],
+        tutorId: (g['tutorId'] ?? '').toString(),
+        tutorName: g['tutorName'],
+        studentIds: const [],
+      );
+    }
+    return null;
+  }
+
+  Future<void> createGroup({required String tutorId, required String name, required String code}) =>
+      _post('/groups', {'tutorId': tutorId, 'name': name, 'code': code});
+
+  Future<void> joinGroup({required String studentId, required String groupCode}) =>
+      _post('/groups/join', {'studentId': studentId, 'groupCode': groupCode});
+
+  Future<List<Group>> fetchGroupsForTutor(String tutorId) async {
+    final resp = await _get('/groups', {'tutorId': tutorId});
+    if (resp is! List) return [];
+    return resp.map<Group>((g) {
+      final students = (g['students'] as List? ?? [])
+          .map((s) => (s['id'] ?? '').toString())
+          .toList();
+      for (final s in g['students'] ?? []) {
+        cachedUsers[(s['id'] ?? '').toString()] = AppUser(
+          id: (s['id'] ?? '').toString(),
+          name: s['name'] ?? 'Alumno',
+          email: '',
+          password: '',
+          role: UserRole.student,
+        );
+      }
+      return Group(
+        id: g['id'],
+        code: g['code'],
+        name: g['name'],
+        tutorId: tutorId,
+        studentIds: students,
+      );
+    }).toList();
+  }
+
+  Future<void> logMood({required String studentId, required MoodEmoji mood, String? note}) =>
+      _post('/mood', {'studentId': studentId, 'mood': mood.name, 'note': note});
+
+  Future<List<MoodRecord>> fetchMood(String studentId) async {
+    final resp = await _get('/mood', {'studentId': studentId});
+    if (resp is! List) return [];
+    return resp
+        .map<MoodRecord>((m) => MoodRecord(
+              userId: studentId,
+              date: DateTime.parse(m['loggedDate']),
+              mood: MoodEmoji.values.firstWhere((e) => e.name == m['mood']),
+              note: m['note'],
+            ))
+        .toList();
+  }
+
+  Future<void> submitPerception({
+    required String studentId,
+    required String subject,
+    required MoodEmoji emotion,
+    String? notes,
+  }) =>
+      _post('/perception', {
+        'studentId': studentId,
+        'subject': subject,
+        'emotion': emotion.name,
+        'notes': notes
+      });
+
+  Future<List<WeeklyPerception>> fetchPerceptions(String studentId) async {
+    final resp = await _get('/perception', {'studentId': studentId});
+    if (resp is! List) return [];
+    return resp
+        .map<WeeklyPerception>((p) => WeeklyPerception(
+              userId: studentId,
+              subject: p['subject'],
+              weekOf: DateTime.parse(p['weekStart']),
+              emotion: MoodEmoji.values.firstWhere((e) => e.name == p['emotion']),
+              notes: p['notes'],
+            ))
+        .toList();
+  }
+
+  Future<void> requestJustification({
+    required String studentId,
+    required String type,
+    String? evidence,
+  }) =>
+      _post('/justifications', {'studentId': studentId, 'type': type, 'evidenceUrl': evidence});
+
+  Future<List<JustificationRequest>> fetchJustifications({String? studentId, String? tutorId}) async {
+    final query = <String, String>{};
+    if (studentId != null) query['studentId'] = studentId;
+    if (tutorId != null) query['tutorId'] = tutorId;
+    final resp = await _get('/justifications', query);
+    if (resp is! List) return [];
+    return resp
+        .map<JustificationRequest>((j) => JustificationRequest(
+              id: (j['id'] ?? '').toString(),
+              userId: studentId ?? (j['studentId'] ?? '').toString(),
+              type: j['type'],
+              evidence: j['evidenceUrl'],
+              status: JustificationStatus.values.firstWhere((e) => e.name == j['status']),
+              date: DateTime.parse(j['createdAt']),
+            ))
+        .toList();
+  }
+
+  Future<void> resolveJustification({
+    required String id,
+    required String status,
+    String? reviewerId,
+  }) =>
+      _patch('/justifications/$id', {'status': status, 'reviewerId': reviewerId});
+
+  Future<List<AlertItem>> fetchAlerts({String? studentId, String? tutorId}) async {
+    final query = <String, String>{};
+    if (studentId != null) query['studentId'] = studentId;
+    if (tutorId != null) query['tutorId'] = tutorId;
+    final resp = await _get('/alerts', query);
+    if (resp is! List) return [];
+    return resp
+        .map<AlertItem>((a) => AlertItem(
+              id: (a['id'] ?? '').toString(),
+              userId: studentId ?? '',
+              type: AlertType.values.firstWhere((e) => e.name == a['type']),
+              message: a['message'],
+              date: DateTime.parse(a['createdAt']),
+              severity: a['severity'],
+            ))
+        .toList();
+  }
+
+  Future<void> sendMessage({
+    required String fromId,
+    required String body,
+    String? toUserId,
+    int? groupId,
+  }) =>
+      _post('/messages', {
+        'fromUserId': fromId,
+        'toUserId': toUserId,
+        'groupId': groupId,
+        'body': body,
+      });
+
+  Future<List<MessageItem>> fetchMessages({int? groupId, String? currentUserId, String? peerId}) async {
+    final query = <String, String>{};
+    if (groupId != null) query['groupId'] = groupId.toString();
+    if (currentUserId != null && peerId != null) {
+      query['fromUserId'] = currentUserId;
+      query['toUserId'] = peerId;
+    }
+    final resp = await _get('/messages', query);
+    if (resp is! List) return [];
+    return resp
+        .map<MessageItem>((m) => MessageItem(
+              id: (m['id'] ?? '').toString(),
+              fromId: (m['fromUserId'] ?? m['from_user_id'] ?? '').toString(),
+              toUserId: (m['toUserId'] ?? m['to_user_id'])?.toString(),
+              groupId: m['groupId'] ?? m['group_id'],
+              body: m['body'],
+              date: DateTime.parse(m['createdAt']),
+            ))
+        .toList();
+  }
+
+  Future<dynamic> _get(String path, Map<String, String> params) async {
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: params);
+    final res = await _client.get(uri);
+    if (res.statusCode >= 400) throw Exception(_err(res));
+    return jsonDecode(res.body);
+  }
+
+  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+    final res = await _client.post(
+      Uri.parse('$baseUrl$path'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (res.statusCode >= 400) throw Exception(_err(res));
+    return jsonDecode(res.body);
+  }
+
+  Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
+    final res = await _client.patch(
+      Uri.parse('$baseUrl$path'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (res.statusCode >= 400) throw Exception(_err(res));
+    return jsonDecode(res.body);
+  }
+
+  String _err(http.Response res) {
+    try {
+      final data = jsonDecode(res.body);
+      if (data is Map && data['error'] != null) return data['error'];
+    } catch (_) {}
+    return 'Error ${res.statusCode}';
+  }
+
+  AppUser _userFromJson(Map<String, dynamic> json) => AppUser(
+        id: (json['id'] ?? '').toString(),
+        name: json['name'] ?? '',
+        email: json['email'] ?? '',
+        password: '',
+        role: (json['role']?.toString() == 'tutor') ? UserRole.tutor : UserRole.student,
+      );
 }
 
 extension FirstOrNull<T> on Iterable<T> {
